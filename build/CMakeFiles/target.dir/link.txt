@@ -1,0 +1,1 @@
+/usr/bin/gcc-12 -g CMakeFiles/target.dir/main.c.o -o target  -lm 
