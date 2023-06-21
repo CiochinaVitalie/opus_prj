@@ -5,18 +5,7 @@
 #include <stdio.h>
 #include "opus_interface.h"
 
-/*The frame size is hardcoded for this sample code but it doesn't have to be*/
-// #define FRAME_SIZE 960//160
-// #define SAMPLE_RATE 16000
-// #define CHANNELS 1
-// #define APPLICATION OPUS_APPLICATION_VOIP
-// #define BITRATE 16000
-// #define MAX_FRAME_SIZE 6*960//160
-// #define MAX_PACKET_SIZE (3*1276)//(2 * 20)
 
-// #define MODE_CELT_ONLY          1002
-// #define OPUS_SET_FORCE_MODE_REQUEST    11002
-// #define OPUS_SET_FORCE_MODE(x) OPUS_SET_FORCE_MODE_REQUEST, __opus_check_int(x)
 typedef enum
 {
   SAMPLING_FREQ_8000 = 8000,
@@ -57,8 +46,8 @@ typedef enum
 
 #define AUDIO_CHANNELS_IN                  (uint16_t) (IN_CHANNELS_1)		        /*!< Input channels number.*/
 #define AUDIO_CHANNELS_OUT                 (uint16_t) (OUT_CHANNELS_1)             /*!< Output channels number.*/
-#define AUDIO_IN_SAMPLING_FREQUENCY        (uint16_t) (SAMPLING_FREQ_8000)		/*!< Audio acquisition sampling frequency.*/
-#define AUDIO_OUT_SAMPLING_FREQUENCY       (uint16_t) (SAMPLING_FREQ_8000)		/*!< Audio USB output sampling frequency.*/
+#define AUDIO_IN_SAMPLING_FREQUENCY        (uint16_t) (SAMPLING_FREQ_16000)		/*!< Audio acquisition sampling frequency.*/
+#define AUDIO_OUT_SAMPLING_FREQUENCY       (uint16_t) (SAMPLING_FREQ_16000)		/*!< Audio USB output sampling frequency.*/
 #define PCM_IN_SAMPLES_PER_MS              (AUDIO_IN_SAMPLING_FREQUENCY/1000)	     /*!< Number of PCM samples for each ms of audio acquired.*/
 #define PCM_OUT_SAMPLES_PER_MS             (AUDIO_OUT_SAMPLING_FREQUENCY/1000)	     /*!< Number of PCM samples for each ms of audio given as output.*/
 #define AUDIO_IN_MS                        (20)//N_MS_PER_INTERRUPT  /*!< Audio frame size used for Opus compression.*/
@@ -72,15 +61,33 @@ DEC_Opus_ConfigTypeDef DecConfigOpus;   /*!< opus decode configuration.*/
 static OPT_StatusTypeDef Opus_App_EncInit(void);
 static OPT_StatusTypeDef Opus_App_DecInit(void);
 
+long GetFileSize(const char *filename)
+{
+    long size;
+    FILE *f;
+
+    f = fopen(filename, "rb");
+    if (f == NULL)
+        return -1;
+    fseek(f, 0, SEEK_END);
+    size = ftell(f);
+    fclose(f);
+
+    return size;
+}
+
+
 int main(int argc, char **argv)
 {
    char *inFile;
    FILE *fin;
    char *outFile;
    FILE *fout;
-   opus_int16 in[160];
-   opus_int16 out[160];
+   opus_int16 in[320];
+   opus_int16 out[320];
+   opus_uint8 enc_data[40];
 
+   //unsigned char cbits[320];
    int nbBytes;
 
    int err;
@@ -112,6 +119,10 @@ int main(int argc, char **argv)
       fprintf(stderr, "failed to open input file: %s\n", strerror(errno));
       return EXIT_FAILURE;
    }
+
+   long res = GetFileSize((char*)inFile);
+   fprintf(stderr, "FILE size is : %ld\n", res);
+
    outFile = argv[2];
    fout = fopen(outFile, "w");
    if (fout==NULL)
@@ -123,29 +134,29 @@ int main(int argc, char **argv)
    while (1)
    {
       int i;
-      unsigned char pcm_bytes[320];
+      unsigned char pcm_bytes[640];
       int frame_size;
       /* Read a 16 bits/sample audio frame. */
-      fread(pcm_bytes, sizeof(short), 160, fin);
+      fread(enc_data, sizeof(unsigned char), 40, fin);
       if (feof(fin))
          break;
       /* Convert from little-endian ordering. */
-      for (i=0;i<160;i++)
-         in[i]=pcm_bytes[2*i+1]<<8|pcm_bytes[2*i];
+      // for (i=0;i<320;i++)
+      //    in[i]=pcm_bytes[2*i+1]<<8|pcm_bytes[2*i];
       /* Encode the frame. */
-      nbBytes = ENC_Opus_Encode(in,EncConfigOpus.pInternalMemory);
+   //   nbBytes = ENC_Opus_Encode(in,enc_data);//EncConfigOpus.pInternalMemory
 
-      if (nbBytes<0)
-      {
-         fprintf(stderr, "encode failed: %s\n", opus_strerror(nbBytes));
-         return EXIT_FAILURE;
-      }
+      // if (nbBytes<0)
+      // {
+      //    fprintf(stderr, "encode failed: %s\n", opus_strerror(nbBytes));
+      //    return EXIT_FAILURE;
+      // }
       /* Decode the data. In this example, frame_size will be constant because
          the encoder is using a constant frame size. However, that may not
          be the case for all encoders, so the decoder must always check
          the frame size returned. */
-      //uint8_t *p = (uint8_t *)out;   
-      frame_size = DEC_Opus_Decode(EncConfigOpus.pInternalMemory,nbBytes,(uint8_t *)out);//DecConfigOpus.pInternalMemory
+  
+      frame_size = DEC_Opus_Decode(enc_data,40,(uint8_t *)out);//DecConfigOpus.pInternalMemory,EncConfigOpus.pInternalMemory
 
       if (frame_size<0)
       {
@@ -154,13 +165,13 @@ int main(int argc, char **argv)
       }
       
       /* Convert to little-endian ordering. */
-      for(i=0;i<160;i++)//frame_size
+      for(i=0;i<320;i++)//frame_size
       {
          pcm_bytes[2*i]=out[i]&0xFF;//DecConfigOpus.pInternalMemory
          pcm_bytes[2*i+1]=(out[i]>>8)&0xFF;//DecConfigOpus.pInternalMemory
       }
       /* Write the decoded audio to file. */
-      fwrite(pcm_bytes, sizeof(short), 160, fout);//frame_size
+      fwrite(pcm_bytes, sizeof(short), 320, fout);
    }
    /*Destroy the encoder state*/
    ENC_Opus_Deinit();
@@ -186,7 +197,7 @@ static OPT_StatusTypeDef Opus_App_EncInit(void)
    }
 
   EncConfigOpus.application = OPUS_APPLICATION_VOIP;
-  EncConfigOpus.bitrate = 8000;
+  EncConfigOpus.bitrate = 16000;
   EncConfigOpus.channels = AUDIO_CHANNELS_IN;//AUDIO_CHANNELS_IN
   EncConfigOpus.complexity = 0;
   EncConfigOpus.ms_frame = AUDIO_IN_MS;//AUDIO_IN_MS
